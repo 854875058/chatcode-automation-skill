@@ -1,0 +1,4 @@
+config.json
+chatcode/
+__pycache__/
+*.pyc
