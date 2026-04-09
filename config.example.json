@@ -1,0 +1,51 @@
+{
+  "chatcode": {
+    "pipeName": "chatcode-ipc",
+    "root": "C:\\Users\\<YourUser>\\.chatcode",
+    "nodePath": "",
+    "timeoutSec": 180,
+    "pollMs": 1000
+  },
+  "git": {
+    "repoName": "<your-repo-name>",
+    "repoPath": "D:\\path\\to\\your-repo",
+    "remoteContains": "gitlab.example.com",
+    "branch": "feature_<taskId>_<date>",
+    "taskId": "<task-id>",
+    "commitMessage": "chatcode代码生成",
+    "commit": false,
+    "push": false,
+    "commitFiles": [
+      "chatcode\\chatcodeGenerated.js"
+    ]
+  },
+  "taskDefaults": {
+    "promptText": "",
+    "promptFile": "",
+    "outputDir": "chatcode",
+    "outputPath": "chatcodeGenerated.js",
+    "outputMode": "code",
+    "metadataOutputPath": "chatcode\\last-run.json"
+  },
+  "statsDefaults": {
+    "beginTime": "2026-04-01 00:00:00",
+    "endTime": "2026-04-30 23:59:59",
+    "authorEmail": "your.email@example.com",
+    "projectName": "<your-project-name>",
+    "gitlabInstance": "gitlab.example.com",
+    "taskId": "",
+    "titleContains": "",
+    "commitId": "",
+    "excludeMerge": true,
+    "outputJsonPath": "chatcode\\stats-last-run.json",
+    "outputCsvPath": "chatcode\\stats-last-run.csv"
+  },
+  "boostDefaults": {
+    "beginTime": "2026-04-09 00:00:00",
+    "endTime": "2026-04-10 23:59:59",
+    "targetRatioPercent": 70,
+    "itemCountPerCommit": 1000,
+    "maxCommits": 8,
+    "assumedAiRatio": 0.93
+  }
+}
