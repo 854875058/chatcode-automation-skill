@@ -154,7 +154,8 @@ function summarizeRows(rows) {
   const aiTotal = rows.reduce((sum, row) => sum + toNumber(row.aiTotal), 0);
   const total = rows.reduce((sum, row) => sum + toNumber(row.total), 0);
   const deletions = rows.reduce((sum, row) => sum + toNumber(row.deletions), 0);
-  const aiRatioPercent = total > 0 ? Number(((aiTotal / total) * 100).toFixed(2)) : 0;
+  const aiRatioPercent = additions > 0 ? Number(((aiTotal / additions) * 100).toFixed(2)) : 0;
+  const aiRatioPercentByTotal = total > 0 ? Number(((aiTotal / total) * 100).toFixed(2)) : 0;
 
   return {
     commitCount: rows.length,
@@ -163,6 +164,7 @@ function summarizeRows(rows) {
     total,
     deletions,
     aiRatioPercent,
+    aiRatioPercentByTotal,
   };
 }
 

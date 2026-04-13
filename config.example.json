@@ -4,7 +4,16 @@
     "root": "C:\\Users\\<YourUser>\\.chatcode",
     "nodePath": "",
     "timeoutSec": 180,
-    "pollMs": 1000
+    "pollMs": 1000,
+    "host": {
+      "ensureReady": false,
+      "launchMode": "manual",
+      "launcherPath": "",
+      "launcherArgs": [
+        "{repo_path}"
+      ],
+      "startupTimeoutSec": 25
+    }
   },
   "git": {
     "repoName": "<your-repo-name>",
@@ -12,12 +21,21 @@
     "remoteContains": "gitlab.example.com",
     "branch": "feature_<taskId>_<date>",
     "taskId": "<task-id>",
-    "commitMessage": "chatcode代码生成",
+    "commitMessage": "chatcode code generation",
     "commit": false,
     "push": false,
+    "postPushVerify": true,
+    "postPushVerifyTimeoutSec": 120,
+    "postPushVerifyPollSec": 5,
     "commitFiles": [
       "chatcode\\chatcodeGenerated.js"
     ]
+  },
+  "commitRatio": {
+    "enabled": true,
+    "minAiRatioPercent": 90,
+    "maxAiRatioPercent": 95,
+    "targetAiRatioPercent": 93
   },
   "taskDefaults": {
     "promptText": "",
@@ -31,7 +49,7 @@
     "beginTime": "2026-04-01 00:00:00",
     "endTime": "2026-04-30 23:59:59",
     "authorEmail": "your.email@example.com",
-    "projectName": "<your-project-name>",
+    "projectName": "",
     "gitlabInstance": "gitlab.example.com",
     "taskId": "",
     "titleContains": "",

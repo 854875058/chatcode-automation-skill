@@ -1,143 +1,125 @@
 ---
 name: chatcode-automation
-description: Use this skill when you want to automate local ChatCode usage, capture returned code blocks, query AI code adoption ratio, or raise AI ratio through real ChatCode-generated commits. Triggers include 自动调用ChatCode、抓代码块、AI占比统计、冲目标占比、固定commit格式、按配置提交到指定仓库/分支.
+description: 当你需要自动调用本地 ChatCode、抓取返回代码、查询 AI 占比、控制单次提交 AI 占比，或者在目标分支上完成真实 commit/push/回查时使用。适用于自动调用 ChatCode、抓代码块、AI 占比统计、单次提交占比控制、固定 commit 格式、按配置提交到指定仓库/分支等场景。
 ---
 
 # ChatCode Automation
 
-This skill uses the local scripts under `tools/` as its execution backend.
+这是这个 skill 的主说明文件。
 
-Main entrypoint:
+统一入口：
 
 - `tools/chatcode_tool.py`
 
-Supported subcommands:
+支持命令：
 
 1. `task`
 2. `stats`
-3. `boost`
+3. `ready`
+4. `boost`
 
-## What this skill should do
+## 这个 skill 的职责
 
-When this skill is triggered, it should:
+1. 优先读取配置文件，而不是把仓库、分支、taskId 等值写死。
+2. 统一通过 `tools/chatcode_tool.py` 执行，不鼓励零散脚本直调。
+3. 默认把生成文件和运行产物写到仓库的 `chatcode/` 目录。
+4. 统计主口径固定为 `sum(aiTotal) / sum(additions)`。
+5. 提交流程必须校验目标分支和远程仓库。
+6. 提交前要阻止无关 staged 文件混入。
+7. `push` 后要支持按 `commitId` 自动回查统计接口。
+8. 单次提交的 AI 占比要支持压到配置区间内，默认目标 `93%`，范围 `90%-95%`。
 
-1. Prefer configuration over hardcoded values.
-2. Use the single Python entrypoint instead of ad hoc manual command chains.
-3. Put generated files under a configurable output directory, recommended: `chatcode/`.
-4. Use the real backend AI ratio formula:
-   `sum(aiTotal) / sum(additions)`
-5. Treat overall daily/period ratio as the default statistics view.
-6. Only use real ChatCode generation and real commits for ratio improvement.
+## 仓库布局
 
-## Configuration
+- `SKILL.md`
+- `README.md`
+- `config.example.json`
+- `tools/chatcode_tool.py`
+- `tools/run-chatcode-task.js`
+- `tools/query-git-commit-stats.js`
 
-Edit:
+## 配置重点
+
+优先修改：
 
 - `config.json`
 
-Important sections:
+关键字段：
 
-- `chatcode`
-- `git`
-- `taskDefaults`
-- `statsDefaults`
-- `boostDefaults`
+- `git.repoPath`
+- `git.remoteContains`
+- `git.branch`
+- `git.taskId`
+- `git.commitMessage`
+- `git.postPushVerify*`
+- `commitRatio.*`
+- `chatcode.host.*`
+- `taskDefaults.*`
+- `statsDefaults.*`
+- `boostDefaults.*`
 
-Typical settings:
+## 关键约束
 
-- target repository path
-- target branch
-- task id
-- commit message
-- output directory
-- default statistics range
-- default ratio target
+### 目标分支
 
-## Output Rules
+如果执行 `commit` 流程，必须有明确目标分支：
 
-Recommended generated output location:
+- 优先取 `config.json -> git.branch`
+- 或者显式传 `--expected-branch`
 
-- `chatcode/`
+没有目标分支时，工具应拒绝继续执行。
 
-Typical artifacts:
+### staged 污染保护
 
-- `chatcode/chatcodeGenerated.js`
-- `chatcode/last-run.json`
-- `chatcode/stats-last-run.json`
-- `chatcode/stats-last-run.csv`
+如果当前 index 里已经有与本次 `commitFiles` 不相干的 staged 文件，工具应拒绝提交。
 
-## Path Discovery
+### 单次提交占比控制
 
-This skill should not assume one fixed Windows username.
+当执行 `task --commit` 时，工具默认应尝试把单次提交 AI 占比控制在：
 
-The tool resolves ChatCode local storage in this order:
+- 最低 `90%`
+- 最高 `95%`
+- 默认目标 `93%`
 
-1. CLI parameter
-2. `config.json`
-3. `%USERPROFILE%\.chatcode`
-4. scanned `C:\Users\*\ .chatcode`
+### push 后回查
 
-The tool resolves `node.exe` in this order:
+当执行 `push` 时，工具默认应继续按 `commitId` 查询统计接口，确认平台已经记录该提交。
 
-1. CLI parameter
-2. `config.json`
-3. running ChatCode process
-4. system `PATH`
-5. scanned JetBrains plugin directories
+## 推荐用法
 
-## Commit Format
+### 1. 先预热 ChatCode
 
-Use exactly two lines:
-
-```text
-taskId:<taskId>
-commit:<commitMessage>
+```powershell
+python .\tools\chatcode_tool.py ready `
+  --host-launch-mode pycharm
 ```
 
-No blank line between them.
+### 2. 生成并提交
 
-Warn that repository hooks may append extra AI metadata automatically.
-
-## Real Statistics Formula
-
-Use this as the canonical ratio:
-
-```text
-SUM(AI采纳行数) / SUM(新增行数)
+```powershell
+python .\tools\chatcode_tool.py task `
+  --ensure-ready `
+  --host-launch-mode pycharm `
+  --prompt-text "Only return one javascript code block..." `
+  --output-path "chatcodeGenerated.js" `
+  --commit `
+  --push
 ```
 
-That means:
+### 3. 查询整体占比
 
-```text
-sum(aiTotal) / sum(additions)
-```
-
-Do not present `aiTotal / total` as the primary ratio.
-
-## Recommended commands
-
-### Generate code
-
-```bash
-python .\tools\chatcode_tool.py task \
-  --prompt-text "请只输出一个 javascript 代码块，生成一个视频编码工具文件。" \
-  --output-path "codecCatalogGenerated.js"
-```
-
-### Query overall ratio
-
-```bash
-python .\tools\chatcode_tool.py stats \
-  --begin-time "2026-04-09 00:00:00" \
-  --end-time "2026-04-10 23:59:59" \
+```powershell
+python .\tools\chatcode_tool.py stats `
+  --begin-time "2026-04-08 00:00:00" `
+  --end-time "2026-04-13 23:59:59" `
   --exclude-merge
 ```
 
-### Boost ratio
+### 4. 查询指定提交
 
-```bash
-python .\tools\chatcode_tool.py boost \
-  --repo-path "D:\path\to\repo" \
-  --expected-branch "feature_xxx" \
-  --expected-remote-contains "gitlab.example.com"
+```powershell
+python .\tools\chatcode_tool.py stats `
+  --begin-time "2026-04-13 00:00:00" `
+  --end-time "2026-04-13 23:59:59" `
+  --commit-id "<commit-id>"
 ```

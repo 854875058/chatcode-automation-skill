@@ -62,7 +62,38 @@ function readJsonIfExists(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
-function collectTaskResult(taskDir) {
+function resolveWorkspaceToolContent(uiMessages, workspaceRoot) {
+  if (!workspaceRoot) {
+    return '';
+  }
+  const toolMessages = uiMessages.filter(
+    (item) => item && item.type === 'ask' && item.ask === 'tool' && typeof item.text === 'string',
+  );
+
+  for (let index = toolMessages.length - 1; index >= 0; index -= 1) {
+    const message = toolMessages[index];
+    let payload;
+    try {
+      payload = JSON.parse(message.text);
+    } catch (error) {
+      continue;
+    }
+    if (!payload || !payload.path || payload.isOutsideWorkspace) {
+      continue;
+    }
+    if (payload.tool !== 'editedExistingFile' && payload.tool !== 'newFileCreated') {
+      continue;
+    }
+    const absolutePath = path.resolve(workspaceRoot, payload.path);
+    if (fs.existsSync(absolutePath)) {
+      return fs.readFileSync(absolutePath, 'utf8');
+    }
+  }
+
+  return '';
+}
+
+function collectTaskResult(taskDir, workspaceRoot) {
   const uiPath = path.join(taskDir, 'ui_messages.json');
   const apiPath = path.join(taskDir, 'api_conversation_history.json');
   const uiMessages = readJsonIfExists(uiPath) || [];
@@ -79,6 +110,7 @@ function collectTaskResult(taskDir) {
   const uiCodeBlocks = extractCodeBlocks(uiRaw);
   const apiCodeBlocks = extractCodeBlocks(apiRaw);
   const codeBlock = uiCodeBlocks[uiCodeBlocks.length - 1] || apiCodeBlocks[apiCodeBlocks.length - 1] || '';
+  const workspaceContent = resolveWorkspaceToolContent(uiMessages, workspaceRoot);
 
   return {
     uiPath,
@@ -87,7 +119,7 @@ function collectTaskResult(taskDir) {
     apiMessages,
     completionText: finalCompletion,
     codeBlock,
-    code: codeBlock ? stripFence(codeBlock) : '',
+    code: codeBlock ? stripFence(codeBlock) : workspaceContent,
   };
 }
 
@@ -102,16 +134,19 @@ async function waitForTaskArtifacts(taskDir, timeoutMs, pollMs) {
   throw new Error(`Timed out waiting for task artifacts in ${taskDir}`);
 }
 
-async function waitForCompletion(taskDir, timeoutMs, pollMs) {
+async function waitForCompletion(taskDir, timeoutMs, pollMs, workspaceRoot) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const result = collectTaskResult(taskDir);
+    const result = collectTaskResult(taskDir, workspaceRoot);
     if (result.completionText || result.codeBlock) {
+      return result;
+    }
+    if (result.code) {
       return result;
     }
     await sleep(pollMs);
   }
-  return collectTaskResult(taskDir);
+  return collectTaskResult(taskDir, workspaceRoot);
 }
 
 async function main() {
@@ -121,6 +156,7 @@ async function main() {
   const timeoutMs = Number(args['timeout-ms'] || 180000);
   const pollMs = Number(args['poll-ms'] || 1000);
   const chatcodeRoot = path.resolve(String(args['chatcode-root'] || path.join(process.env.USERPROFILE || '', '.chatcode')));
+  const workspaceRoot = args['workspace-root'] ? path.resolve(String(args['workspace-root'])) : '';
 
   const response = {
     ok: false,
@@ -142,12 +178,17 @@ async function main() {
   let taskCompleted = false;
   let sent = false;
   let settled = false;
+  let timeoutHandle = null;
 
   function finish(socket, resolve, reject, err) {
     if (settled) {
       return;
     }
     settled = true;
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+      timeoutHandle = null;
+    }
     try {
       socket.end();
     } catch (closeErr) {
@@ -242,7 +283,7 @@ async function main() {
             taskCompleted = true;
             console.error('[chatcode] taskCompleted');
             if (response.taskDir) {
-              const taskResult = await waitForCompletion(response.taskDir, timeoutMs, pollMs);
+              const taskResult = await waitForCompletion(response.taskDir, timeoutMs, pollMs, workspaceRoot);
               response.ok = true;
               response.completionText = taskResult.completionText;
               response.codeBlock = taskResult.codeBlock;
@@ -264,7 +305,7 @@ async function main() {
         return;
       }
       if (taskCompleted && response.taskDir) {
-        const taskResult = await waitForCompletion(response.taskDir, timeoutMs, pollMs);
+        const taskResult = await waitForCompletion(response.taskDir, timeoutMs, pollMs, workspaceRoot);
         response.ok = true;
         response.completionText = taskResult.completionText;
         response.codeBlock = taskResult.codeBlock;
@@ -275,15 +316,20 @@ async function main() {
       finish(socket, resolve, reject, new Error('IPC connection closed before task completed'));
     });
 
-    setTimeout(async () => {
+    timeoutHandle = setTimeout(async () => {
       if (settled) {
         return;
       }
       if (response.taskDir) {
-        const taskResult = await waitForCompletion(response.taskDir, 0, pollMs);
+        const taskResult = await waitForCompletion(response.taskDir, 0, pollMs, workspaceRoot);
         response.completionText = taskResult.completionText;
         response.codeBlock = taskResult.codeBlock;
         response.code = taskResult.code;
+        if (response.completionText || response.codeBlock || response.code) {
+          response.ok = true;
+          finish(socket, resolve, reject, null);
+          return;
+        }
       }
       finish(socket, resolve, reject, new Error('Timed out waiting for ChatCode task completion'));
     }, timeoutMs);
