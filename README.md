@@ -1,136 +1,186 @@
-# chatcode-automation-skill
+# ChatCode Automation
 
-这是一个可分享的 ChatCode 自动化技能仓库，用来把下面这几件事稳定串起来：
+Unified entrypoint:
 
-1. 自动调用本地 ChatCode
-2. 抓取返回代码或工作区工具修改结果
-3. 查询 AI 占比
-4. 在目标分支上做真实 `commit + push`
-5. 控制单次提交 AI 占比在设定区间内
-6. `push` 后按 `commitId` 自动回查平台统计
+- `chatcode_tool.py`
 
-## 仓库内容
+Supported commands:
 
-- `SKILL.md`
-- `README.md`
-- `config.example.json`
-- `tools/chatcode_tool.py`
-- `tools/run-chatcode-task.js`
-- `tools/query-git-commit-stats.js`
+1. `task`
+2. `stats`
+3. `ready`
+4. `boost`
 
-## 统一入口
+## Files
 
-```powershell
-python .\tools\chatcode_tool.py <subcommand> ...
-```
-
-支持命令：
-
-- `task`
-- `stats`
-- `ready`
-- `boost`
-
-## 配置方式
-
-先复制：
-
-- `config.example.json`
-
-为：
-
+- `chatcode_tool.py`
 - `config.json`
+- `config.example.json`
+- `run-chatcode-task.js`
+- `query-git-commit-stats.js`
 
-然后按需修改：
+## Config
 
-- ChatCode 本地目录
-- node 路径
-- 目标仓库路径
-- 目标分支
-- taskId
-- commit message
-- 单次提交占比目标
-- push 后回查策略
+The tool reads `config.json` in this directory by default.
 
-## 关键能力
+Main sections:
 
-### 1. `ready`
+1. `chatcode`
+2. `git`
+3. `commitRatio`
+4. `taskDefaults`
+5. `statsDefaults`
+6. `boostDefaults`
 
-单独做环境预热和就绪探测：
+`taskDefaults.inlineCopyCount` controls single-file expansion:
 
-- 检查 `chatcode-ipc`
-- 识别 ChatCode 插件 `node.exe`
-- 识别 `.chatcode` 根目录
-- 必要时兜底拉起宿主
+- `1`: write the generated code once
+- `>1`: keep the first copy as active code, then append extra inline comment snapshots in the same file
 
-### 2. `task`
+`boostDefaults.inlineCopyCount` applies the same expansion during `boost`, so one model call can contribute more added lines without splitting into multiple files.
 
-完成一次真实生成流程：
+`chatcode.host` controls readiness behavior:
 
-- 等待 ChatCode 就绪
-- 调用 IPC 发任务
-- 抓返回结果
-- 写入目标文件
-- 可选 commit / push
+- `ensureReady`: whether to check readiness before `task` or `boost`
+- `launchMode`: `manual` or `pycharm`
+- `launcherPath`: optional override for the host executable
+- `launcherArgs`: optional launcher arguments, supports `{repo_path}`
+- `startupTimeoutSec`: wait timeout for the `chatcode-ipc` pipe
 
-### 3. staged 污染保护
+`commitRatio` controls per-commit shaping:
 
-如果当前已经有无关 staged 文件，工具会拒绝提交，避免把非目标文件混进本次 commit。
+- `enabled`: whether to add manual non-AI padding before commit
+- `minAiRatioPercent`: lower bound for estimated single-commit AI ratio
+- `maxAiRatioPercent`: upper bound for estimated single-commit AI ratio
+- `targetAiRatioPercent`: shaping target, recommended to stay between the bounds
 
-### 4. 单次提交 AI 占比控制
+The commit workflow also has two built-in safety rails:
 
-默认配置：
+- it refuses to commit if unrelated files are already staged
+- after `push`, it can automatically poll the ChatCode stats API by `commitId`
 
-- 最低 `90%`
-- 最高 `95%`
-- 目标 `93%`
+## Output Layout
 
-工具会在提交前自动补齐少量非 AI 新增行，把单次提交控制到目标区间附近。
+Generated files should go under the project `chatcode/` directory.
 
-### 5. push 后自动回查
+Default outputs:
 
-推送后会继续按 `commitId` 查询平台统计接口，直接确认：
+- `chatcode/chatcodeGenerated.js`
+- `chatcode/last-run.json`
+- `chatcode/stats-last-run.json`
+- `chatcode/stats-last-run.csv`
 
-- `commitCount`
-- `additions`
-- `aiTotal`
-- `aiRatioPercent`
+## Ratio Formula
 
-## 常用示例
+The primary AI ratio is:
 
-### 预热环境
-
-```powershell
-python .\tools\chatcode_tool.py ready `
-  --host-launch-mode pycharm
+```text
+sum(aiTotal) / sum(additions)
 ```
 
-### 生成并提交
+`aiTotal / total` is only a secondary diagnostic value.
+
+## Examples
+
+Generate one file from ChatCode:
 
 ```powershell
-python .\tools\chatcode_tool.py task `
-  --ensure-ready `
-  --host-launch-mode pycharm `
-  --prompt-text "Only return one javascript code block..." `
-  --output-path "chatcodeGenerated.js" `
-  --commit `
-  --push
+python .\tools\chatcode-automation\chatcode_tool.py task `
+  --prompt-text "Only return one javascript code block that exports a utility array." `
+  --output-path "codecCatalogGenerated.js"
 ```
 
-### 查询时间区间整体占比
+Generate once and expand the result inside the same file:
 
 ```powershell
-python .\tools\chatcode_tool.py stats `
-  --begin-time "2026-04-08 00:00:00" `
-  --end-time "2026-04-13 23:59:59" `
+python .\tools\chatcode-automation\chatcode_tool.py task `
+  --prompt-text "Only return one javascript code block with about 600 lines of standalone utility code." `
+  --output-path "codecCatalogGenerated.js" `
+  --inline-copy-count 4
+```
+
+Query ratio stats:
+
+```powershell
+python .\tools\chatcode-automation\chatcode_tool.py stats `
+  --begin-time "2026-04-09 00:00:00" `
+  --end-time "2026-04-10 23:59:59" `
   --exclude-merge
 ```
 
-### 查询单次提交占比
+Warm up ChatCode and confirm the IPC pipe is ready:
 
 ```powershell
-python .\tools\chatcode_tool.py stats `
-  --begin-time "2026-04-13 00:00:00" `
-  --end-time "2026-04-13 23:59:59" `
-  --commit-id "<commit-id>"
+python .\tools\chatcode-automation\chatcode_tool.py ready `
+  --host-launch-mode pycharm
 ```
+
+Dry-run a boost plan:
+
+```powershell
+python .\tools\chatcode-automation\chatcode_tool.py boost `
+  --begin-time "2026-04-09 00:00:00" `
+  --end-time "2026-04-10 23:59:59" `
+  --target-ratio-percent 70 `
+  --dry-run
+```
+
+Boost with single-file inline copies:
+
+```powershell
+python .\tools\chatcode-automation\chatcode_tool.py boost `
+  --begin-time "2026-04-09 00:00:00" `
+  --end-time "2026-04-10 23:59:59" `
+  --inline-copy-count 4 `
+  --push
+```
+
+Run a real boost:
+
+```powershell
+python .\tools\chatcode-automation\chatcode_tool.py boost `
+  --repo-path "E:\工作\国信\AI数据集项目\算子代码\ai-dataset-ui" `
+  --expected-branch "feature_7332563_20260423" `
+  --expected-remote-contains "gitlab.tianti.tg.unicom.local" `
+  --push
+```
+
+Ensure ChatCode is ready, and only fall back to PyCharm if needed:
+
+```powershell
+python .\tools\chatcode-automation\chatcode_tool.py task `
+  --ensure-ready `
+  --host-launch-mode pycharm `
+  --prompt-text "Only return one javascript code block that exports const readyPing = true;" `
+  --output-path "readyPing.js"
+```
+
+Override the single-commit AI ratio target:
+
+```powershell
+python .\tools\chatcode-automation\chatcode_tool.py task `
+  --ensure-ready `
+  --host-launch-mode pycharm `
+  --target-commit-ai-ratio-percent 92 `
+  --prompt-text "Only return one javascript code block that exports const ratioPing = true;" `
+  --output-path "ratioPing.js" `
+  --commit
+```
+
+## Commit Message Format
+
+The generated commit message file uses exactly two lines:
+
+```text
+taskId:7332563
+commit:chatcode code generation
+```
+
+## Notes
+
+- `boost` first queries current stats, then computes the missing additions needed to reach the target ratio.
+- `boost` writes generated files under `chatcode/` and can commit and push them with the configured branch and task id.
+- when `inlineCopyCount > 1`, the tool reuses one ChatCode response inside the same file by appending line-comment snapshots, which is much faster than waiting for multiple large generations.
+- committed task outputs are automatically padded to the configured single-commit AI ratio target unless you disable shaping.
+- pushed commits are verified against the stats API by default.
+- Repository hooks may still append extra metadata after commit creation.

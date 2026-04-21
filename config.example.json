@@ -16,11 +16,11 @@
     }
   },
   "git": {
-    "repoName": "<your-repo-name>",
-    "repoPath": "D:\\path\\to\\your-repo",
-    "remoteContains": "gitlab.example.com",
-    "branch": "feature_<taskId>_<date>",
-    "taskId": "<task-id>",
+    "repoName": "ai-dataset-ui",
+    "repoPath": "E:\\工作\\国信\\AI数据集项目\\算子代码\\ai-dataset-ui",
+    "remoteContains": "gitlab.tianti.tg.unicom.local",
+    "branch": "feature_7332563_20260423",
+    "taskId": "7332563",
     "commitMessage": "chatcode code generation",
     "commit": false,
     "push": false,
@@ -37,12 +37,22 @@
     "maxAiRatioPercent": 95,
     "targetAiRatioPercent": 93
   },
+  "boostDefaults": {
+    "beginTime": "2026-04-09 00:00:00",
+    "endTime": "2026-04-10 23:59:59",
+    "targetRatioPercent": 70,
+    "itemCountPerCommit": 1000,
+    "inlineCopyCount": 1,
+    "maxCommits": 8,
+    "assumedAiRatio": 0.93
+  },
   "taskDefaults": {
     "promptText": "",
     "promptFile": "",
     "outputDir": "chatcode",
     "outputPath": "chatcodeGenerated.js",
     "outputMode": "code",
+    "inlineCopyCount": 1,
     "metadataOutputPath": "chatcode\\last-run.json"
   },
   "statsDefaults": {
@@ -50,20 +60,12 @@
     "endTime": "2026-04-30 23:59:59",
     "authorEmail": "your.email@example.com",
     "projectName": "",
-    "gitlabInstance": "gitlab.example.com",
+    "gitlabInstance": "gitlab.tianti.tg.unicom.local",
     "taskId": "",
     "titleContains": "",
     "commitId": "",
     "excludeMerge": true,
     "outputJsonPath": "chatcode\\stats-last-run.json",
     "outputCsvPath": "chatcode\\stats-last-run.csv"
-  },
-  "boostDefaults": {
-    "beginTime": "2026-04-09 00:00:00",
-    "endTime": "2026-04-10 23:59:59",
-    "targetRatioPercent": 70,
-    "itemCountPerCommit": 1000,
-    "maxCommits": 8,
-    "assumedAiRatio": 0.93
   }
 }

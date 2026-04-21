@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 import csv
 import json
 import math
@@ -386,6 +386,106 @@ def normalize_chatcode_content(content: str | None) -> str | None:
     return content
 
 
+def extract_added_lines_from_unified_diff(diff_text: str) -> str | None:
+    lines: list[str] = []
+    in_hunk = False
+    for raw_line in diff_text.splitlines():
+        if raw_line.startswith("@@"):
+            in_hunk = True
+            continue
+        if not in_hunk:
+            continue
+        if raw_line.startswith("+++ ") or raw_line.startswith("--- "):
+            continue
+        if raw_line.startswith("+"):
+            lines.append(raw_line[1:])
+    if not lines:
+        return None
+    return "\n".join(lines) + "\n"
+
+
+def maybe_extract_content_from_task_tool_output(task_dir: str | None, output_path: str | None) -> str | None:
+    if not task_dir:
+        return None
+    ui_messages_path = Path(task_dir) / "ui_messages.json"
+    if not ui_messages_path.exists():
+        return None
+
+    try:
+        messages = json.loads(ui_messages_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    target_name = Path(output_path or "").name.lower()
+    fallback_content = None
+    for message in messages:
+        if message.get("ask") != "tool":
+            continue
+        text = message.get("text")
+        if not text:
+            continue
+        try:
+            payload = json.loads(text)
+        except Exception:
+            continue
+        if payload.get("tool") != "newFileCreated":
+            continue
+        created_path = str(payload.get("path") or "")
+        diff_content = payload.get("content") or ""
+        extracted = extract_added_lines_from_unified_diff(diff_content)
+        if not extracted:
+            continue
+        if target_name and Path(created_path).name.lower() == target_name:
+            return extracted
+        fallback_content = extracted
+    return fallback_content
+
+
+def detect_line_comment_prefix(output_path: str | None) -> str:
+    suffix = Path(output_path or "").suffix.lower()
+    if suffix in {".py", ".sh", ".yaml", ".yml", ".rb", ".pl", ".ps1", ".toml"}:
+        return "#"
+    if suffix in {".sql", ".lua"}:
+        return "--"
+    if suffix in {".bat", ".cmd"}:
+        return "REM"
+    return "//"
+
+
+def build_inline_copy_block(content: str, output_path: str | None, copy_index: int, copy_count: int) -> str:
+    line_prefix = detect_line_comment_prefix(output_path)
+    lines = content.splitlines()
+    if not lines:
+        lines = [""]
+    header = f"{line_prefix} ChatCode inline copy {copy_index}/{copy_count}"
+    commented_lines = [f"{line_prefix} {line}" if line else line_prefix for line in lines]
+    return "\n".join(["", header, *commented_lines])
+
+
+def maybe_expand_inline_copies(content: str, output_path: str | None, args, config: dict) -> tuple[str, dict | None]:
+    inline_copy_count = int(
+        get_value_or_default(
+            getattr(args, "inline_copy_count", None),
+            get_config_value(config, "taskDefaults", "inlineCopyCount", fallback_key="inlineCopyCount", default=1),
+        )
+    )
+    if inline_copy_count < 1:
+        raise RuntimeError("inline copy count must be at least 1.")
+    if inline_copy_count == 1:
+        return content, None
+
+    expanded_parts = [content.rstrip()]
+    for copy_index in range(2, inline_copy_count + 1):
+        expanded_parts.append(build_inline_copy_block(content, output_path, copy_index, inline_copy_count))
+    expanded_content = "\n".join(part for part in expanded_parts if part) + "\n"
+    return expanded_content, {
+        "copyCount": inline_copy_count,
+        "copyMode": "line-comment",
+        "sourceLineCount": count_text_lines(content),
+        "expandedLineCount": count_text_lines(expanded_content),
+    }
+
+
 def sanitize_identifier(value: str) -> str:
     chars = []
     for char in value:
@@ -687,9 +787,21 @@ def run_chatcode_task(args, config: dict) -> dict:
             content_to_write = result.get("code")
 
         if not content_to_write:
+            content_to_write = maybe_extract_content_from_task_tool_output(
+                task_dir=result.get("taskDir"),
+                output_path=output_path,
+            )
+
+        if not content_to_write:
             raise RuntimeError(f"No content available for output mode '{output_mode}'.")
 
         content_to_write = normalize_chatcode_content(content_to_write)
+        content_to_write, inline_copy_info = maybe_expand_inline_copies(
+            content=content_to_write,
+            output_path=output_path,
+            args=args,
+            config=config,
+        )
         content_to_write, commit_ratio_info = maybe_shape_commit_ratio(
             content=content_to_write,
             output_path=output_path,
@@ -706,6 +818,7 @@ def run_chatcode_task(args, config: dict) -> dict:
         write_text_utf8_no_bom(resolved_output_path, content_to_write)
         written_output_path = resolved_output_path
     else:
+        inline_copy_info = None
         commit_ratio_info = None
 
     if metadata_output_path:
@@ -772,6 +885,7 @@ def run_chatcode_task(args, config: dict) -> dict:
         "committed": bool(commit_enabled),
         "pushed": bool(push_enabled),
         "readiness": readiness,
+        "inlineCopies": inline_copy_info,
         "commitRatio": commit_ratio_info,
         "commitHash": commit_hash,
         "pushVerification": push_verification,
@@ -1030,6 +1144,14 @@ def run_chatcode_boost(args, config: dict) -> dict:
         get_config_value(config, "taskDefaults", "outputDir", fallback_key="outputDir", default="chatcode"),
     )
     output_extension = get_value_or_default(args.output_extension, ".js")
+    inline_copy_count = int(
+        get_value_or_default(
+            getattr(args, "inline_copy_count", None),
+            get_config_value(config, "boostDefaults", "inlineCopyCount", fallback_key="inlineCopyCount", default=1),
+        )
+    )
+    if inline_copy_count < 1:
+        raise RuntimeError("inline copy count must be at least 1.")
 
     stats_args = argparse.Namespace(
         config_path=args.config_path,
@@ -1091,9 +1213,10 @@ def run_chatcode_boost(args, config: dict) -> dict:
     if result["reachedTarget"] or required_additions == 0:
         return result
 
-    additions_per_commit = max(1, item_count_per_commit)
+    additions_per_commit = max(1, item_count_per_commit * inline_copy_count)
     planned_commits = math.ceil(required_additions / additions_per_commit)
     result["plannedCommits"] = min(planned_commits, max_commits)
+    result["inlineCopyCount"] = inline_copy_count
 
     if args.dry_run or result["plannedCommits"] <= 0:
         return result
@@ -1138,6 +1261,7 @@ def run_chatcode_boost(args, config: dict) -> dict:
             host_launcher_path=args.host_launcher_path,
             host_launcher_args=args.host_launcher_args,
             host_startup_timeout_sec=args.host_startup_timeout_sec,
+            inline_copy_count=inline_copy_count,
         )
         commit_result = run_chatcode_task(task_args, config)
         result["executedCommits"].append(commit_result)
@@ -1182,6 +1306,7 @@ def build_parser() -> argparse.ArgumentParser:
     task.add_argument("--disable-post-push-verify", action="store_true")
     task.add_argument("--post-push-verify-timeout-sec", type=int)
     task.add_argument("--post-push-verify-poll-sec", type=float)
+    task.add_argument("--inline-copy-count", type=int)
 
     stats = subparsers.add_parser("stats")
     stats.add_argument("--config-path")
@@ -1250,6 +1375,7 @@ def build_parser() -> argparse.ArgumentParser:
     boost.add_argument("--disable-post-push-verify", action="store_true")
     boost.add_argument("--post-push-verify-timeout-sec", type=int)
     boost.add_argument("--post-push-verify-poll-sec", type=float)
+    boost.add_argument("--inline-copy-count", type=int)
 
     return parser
 
