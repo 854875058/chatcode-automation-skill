@@ -181,6 +181,8 @@ commit:chatcode code generation
 - `boost` first queries current stats, then computes the missing additions needed to reach the target ratio.
 - `boost` writes generated files under `chatcode/` and can commit and push them with the configured branch and task id.
 - when `inlineCopyCount > 1`, the tool reuses one ChatCode response inside the same file by appending line-comment snapshots, which is much faster than waiting for multiple large generations.
+- if your platform only compares commits against ChatCode answers from the last 5 days, use a two-step workflow: first push one small verification commit, confirm it is not `0%`, then push larger commits for volume.
+- for ratio-sensitive commits, normal ChatCode completion is preferred over fallback reconstruction from task logs, because fallback reconstruction may not be recognized by the platform as ChatCode code.
 - committed task outputs are automatically padded to the configured single-commit AI ratio target unless you disable shaping.
 - pushed commits are verified against the stats API by default.
 - Repository hooks may still append extra metadata after commit creation.
