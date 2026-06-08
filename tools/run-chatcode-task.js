@@ -321,7 +321,7 @@ async function main() {
         return;
       }
       if (response.taskDir) {
-        const taskResult = await waitForCompletion(response.taskDir, 0, pollMs, workspaceRoot);
+        const taskResult = await waitForCompletion(response.taskDir, 300000, pollMs, workspaceRoot);
         response.completionText = taskResult.completionText;
         response.codeBlock = taskResult.codeBlock;
         response.code = taskResult.code;
